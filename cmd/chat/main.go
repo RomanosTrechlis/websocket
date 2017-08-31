@@ -1,16 +1,20 @@
 package main
 
 import (
-	"github.com/stretchr/objx"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"path/filepath"
 	"sync"
+
+	"github.com/RomanosTrechlis/websocket"
 	"github.com/stretchr/gomniauth"
 	"github.com/stretchr/gomniauth/providers/google"
-	"github.com/RomanosTrechlis/websocket"
+	"github.com/stretchr/objx"
 )
+
+var endpoints map[string]*websocket.Endpoint
 
 // set the active Avatar implementation
 var avatars Avatar = TryAvatars{
@@ -30,7 +34,6 @@ func (t *templateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	t.once.Do(func() {
 		t.templ = template.Must(template.ParseFiles(filepath.Join("templates", t.filename)))
 	})
-	log.Println("What the hell")
 	data := map[string]interface{}{
 		"Host":     r.Host,
 		"Endpoint": t.endpoint,
@@ -41,12 +44,46 @@ func (t *templateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	t.templ.Execute(w, data)
 }
 
+type List struct {
+	Rooms []Element
+}
+type Element struct {
+	Name    string
+	Pattern string
+}
+
 func createEndpoint(w http.ResponseWriter, r *http.Request) {
 	s := r.URL.Query().Get("endpoint")
-	n := websocket.NewEndpoint2("chat/" + s, "/socket/" + s, MustAuth(&templateHandler{filename: "chat.html", endpoint: "socket/" + s}))
-	go n.Run()
-	w.Header().Set("Location", "/chat/" + s)
-	http.Redirect(w, r, "/chat/" + s, http.StatusAccepted)
+	n, err := websocket.NewEndpoint(s, "chat/"+s, "/socket/"+s,
+		MustAuth(&templateHandler{filename: "chat.html", endpoint: "socket/" + s}), nil)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error crteating web socket endpoint: %v", err), http.StatusBadRequest)
+		return
+	}
+	endpoints[s] = n
+	go n.Serve()
+	w.Header().Set("Location", "/chat/"+s)
+	http.Redirect(w, r, "/chat/"+s, http.StatusTemporaryRedirect)
+}
+
+func listRooms(w http.ResponseWriter, r *http.Request) {
+	templ := template.Must(template.ParseFiles(filepath.Join("templates", "list.html")))
+
+	elements := make([]Element, 0)
+	log.Println("endpoints:", 0)
+	for name, endpoint := range endpoints {
+		e := Element{
+			Name:    name,
+			Pattern: endpoint.GetApiPattern(),
+		}
+		elements = append(elements, e)
+		log.Println("room:", e)
+	}
+	list := List{
+		Rooms: elements,
+	}
+	fmt.Println(len(list.Rooms))
+	templ.Execute(w, list)
 }
 
 func main() {
@@ -57,10 +94,17 @@ func main() {
 			"http://localhost:8080/auth/callback/google"),
 	)
 
-	e := websocket.NewEndpoint2("chat/test", "/socket/test", MustAuth(&templateHandler{filename: "chat.html", endpoint: "socket/test"}))
-	e2 := websocket.NewEndpoint2("chat/test2", "/socket/test2", MustAuth(&templateHandler{filename: "chat.html", endpoint: "socket/test2"}))
+	endpoints = make(map[string]*websocket.Endpoint)
 
-	http.Handle("/chat", MustAuth(&templateHandler{filename: "chat.html", endpoint: "test"}))
+	e, _ := websocket.NewEndpoint("test", "chat/test", "/socket/test",
+		MustAuth(&templateHandler{filename: "chat.html", endpoint: "socket/test"}), nil)
+	endpoints["test"] = e
+	go e.Serve()
+	e2, _ := websocket.NewEndpoint("test2", "chat/test2", "/socket/test2",
+		MustAuth(&templateHandler{filename: "chat.html", endpoint: "socket/test2"}), nil)
+	endpoints["test2"] = e2
+	go e2.Serve()
+
 	http.Handle("/login", &templateHandler{filename: "login.html"})
 	http.HandleFunc("/auth/", loginHandler)
 	http.Handle("/avatars/",
@@ -77,10 +121,10 @@ func main() {
 		w.WriteHeader(http.StatusTemporaryRedirect)
 	})
 
+	http.HandleFunc("/list", listRooms)
+
 	http.HandleFunc("/endpoint", createEndpoint)
 
-	go e.Run()
-	go e2.Run()
 	// start the web server
 	log.Println("Starting web server on", ":8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {

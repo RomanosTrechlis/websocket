@@ -2,13 +2,14 @@ package websocket
 
 import (
 	"time"
+
 	"github.com/gorilla/websocket"
 )
 
 type Client struct {
 	name     string
 	socket   *websocket.Conn
-	send     chan *Message
+	sendChan chan *Message
 	endpoint *Endpoint
 	userData map[string]interface{}
 }
@@ -16,7 +17,7 @@ type Client struct {
 func (c *Client) read() {
 	defer c.socket.Close()
 	for {
-		var msg *Message
+		var msg Message
 		err := c.socket.ReadJSON(&msg)
 		if err != nil {
 			return
@@ -26,17 +27,16 @@ func (c *Client) read() {
 		if avatarUrl, ok := c.userData["avatar_url"]; ok {
 			msg.AvatarURL = avatarUrl.(string)
 		}
-		c.endpoint.broadcast <- msg
+		c.endpoint.broadcast <- &msg
 	}
 }
 
 func (c *Client) write() {
 	defer c.socket.Close()
-	for msg := range c.send {
+	for msg := range c.sendChan {
 		err := c.socket.WriteJSON(msg)
 		if err != nil {
 			break
 		}
 	}
 }
-

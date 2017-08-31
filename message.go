@@ -34,4 +34,3 @@ func (m *Message) Deserialize(enc []byte) (Message, error) {
 	}
 	return *m, nil
 }
-

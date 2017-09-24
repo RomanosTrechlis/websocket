@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// Message is what client and endpoint exchange
 type Message struct {
 	Author    string    `json:"Author"`
 	Content   string    `json:"Content"`
@@ -14,6 +15,7 @@ type Message struct {
 	AvatarURL string    `json:"AvatarURL"`
 }
 
+// Serialize takes the a message and returns bytes
 func (m *Message) Serialize() ([]byte, error) {
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
@@ -24,6 +26,7 @@ func (m *Message) Serialize() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// Deserialize takes bytes and returns a message
 func (m *Message) Deserialize(enc []byte) (Message, error) {
 	var buf bytes.Buffer
 	buf.Write(enc)

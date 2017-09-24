@@ -6,6 +6,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// Client is an listener of websocket
 type Client struct {
 	name     string
 	socket   *websocket.Conn
@@ -24,8 +25,8 @@ func (c *Client) read() {
 		}
 		msg.When = time.Now()
 		msg.Author = c.userData["name"].(string)
-		if avatarUrl, ok := c.userData["avatar_url"]; ok {
-			msg.AvatarURL = avatarUrl.(string)
+		if avatarURL, ok := c.userData["avatar_url"]; ok {
+			msg.AvatarURL = avatarURL.(string)
 		}
 		c.endpoint.broadcast <- &msg
 	}

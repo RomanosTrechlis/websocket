@@ -5,13 +5,14 @@ import (
 	"log"
 	"net/http"
 
+	"os"
+
 	"github.com/RomanosTrechlis/golog"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/objx"
-	"os"
 )
 
-// Endpoint
+// Endpoint is a websocket for clients to listen to.
 type Endpoint struct {
 	// name is the identifier of the Endpoint
 	name string
@@ -34,6 +35,9 @@ type Endpoint struct {
 	register chan *Client
 	// unregister is a channel that allows clients to leave Endpoint
 	unregister chan *Client
+
+	// service mux
+	mx *http.ServeMux
 }
 
 func init() {
@@ -42,7 +46,9 @@ func init() {
 	endpointsByPattern = make(map[string]bool)
 }
 
-func NewEndpoint(name, pattern, wsPattern string, handler http.Handler, logger *golog.LogWrapper) (*Endpoint, error) {
+// NewEndpoint creates a new websocket
+func NewEndpoint(name, pattern, wsPattern string, handler http.Handler,
+	mx *http.ServeMux, logger *golog.LogWrapper) (*Endpoint, error) {
 	if checkEndpointExists(name) {
 		return nil, fmt.Errorf("endpoint with name '%s' already exists", name)
 	}
@@ -67,6 +73,7 @@ func NewEndpoint(name, pattern, wsPattern string, handler http.Handler, logger *
 		unregister: make(chan *Client),
 		clients:    make(map[*Client]bool),
 		logger:     logger,
+		mx:         mx,
 	}
 	endpointsByName[name] = true
 	endpointsByWsPattern[wsPattern] = true
@@ -74,19 +81,21 @@ func NewEndpoint(name, pattern, wsPattern string, handler http.Handler, logger *
 	return endpoint, nil
 }
 
-func (e *Endpoint) GetApiPattern() string {
+// GetAPIPattern returns the regex pattern that handles routing
+func (e *Endpoint) GetAPIPattern() string {
 	return e.pattern
 }
 
+// Serve creates a websocket route
 func (e *Endpoint) Serve() {
 	// register the endpoints
 	if e.pattern != "" && e.handler != nil {
 		e.logger.Trace("creating api route '/%s'", e.pattern)
-		http.Handle(fmt.Sprintf("/%s", e.pattern), e.handler)
+		e.mx.Handle(fmt.Sprintf("/%s", e.pattern), e.handler)
 	}
 
 	e.logger.Trace("creating web socket endpoint '%s'", e.wsPattern)
-	http.Handle(e.wsPattern, e)
+	e.mx.Handle(e.wsPattern, e)
 	for {
 		select {
 		case client := <-e.register:
